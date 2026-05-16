@@ -34,22 +34,14 @@ class MinimaxAgent:
         best_score = -float('inf')
         best_move = None
         
-        # Lấy các ô trống trong bán kính 3 để tập trung đánh xoay quanh các quân cờ
-        empty_cells = board.get_empty_cells(radius=3)
+        # Giảm radius xuống 2 để thu hẹp không gian tìm kiếm, loại bỏ các nước đi rác
+        empty_cells = board.get_empty_cells(radius=2)
         
-        for r, c in empty_cells:
-            # 1. Tính điểm phòng thủ: Nếu Người (MIN) đánh vào đây thì được bao nhiêu?
-            board.make_move(r, c, self.PLAYER)
-            defense_score = self.evaluator.evaluate_local(board.grid, r, c)
-            board.undo_move(r, c)
-            
-            # 2. Tính điểm tấn công: Máy (MAX) thực sự đánh vào đây
+        # Sắp xếp nước đi (Move Ordering)
+        ordered_moves = self._get_ordered_moves(board, empty_cells, True)
+        
+        for move_score, r, c in ordered_moves:
             board.make_move(r, c, self.MACHINE)
-            attack_score = self.evaluator.evaluate_local(board.grid, r, c)
-            
-            # Điểm của nước đi = Điểm tấn công của Máy - Điểm phòng thủ (tức là chặn Người chơi)
-            # Vì Evaluator trả điểm âm cho Người chơi, nên attack - defense -> Tăng điểm dương cho Máy
-            move_score = attack_score - defense_score
             
             # Gọi đệ quy hàm minimax
             score = self._minimax_rec(board, self.max_depth - 1, False, move_score, r, c, game_logic)
@@ -85,8 +77,8 @@ class MinimaxAgent:
         self.node_count += 1
         
         # 1. Kiểm tra điều kiện dừng (Base Cases)
-        # Truyền board vào hàm check_winner
-        winner, _ = game_logic.check_winner(board)
+        # Truyền board và tọa độ vừa đánh vào hàm check_winner để tối ưu
+        winner, _ = game_logic.check_winner(board, last_r, last_c)
         if winner == self.MACHINE:
             return 1000000000 + depth * 10000000 + current_score  # Ưu tiên thắng càng sớm càng tốt
         elif winner == self.PLAYER:
@@ -96,25 +88,17 @@ class MinimaxAgent:
         if board.is_full() or depth == 0:
             return current_score
             
-        # Lấy danh sách ô trống để duyệt tiếp (bán kính 3)
-        empty_cells = board.get_empty_cells(radius=3)
+        # Lấy danh sách ô trống để duyệt tiếp (bán kính 2 để tối ưu)
+        empty_cells = board.get_empty_cells(radius=2)
         
         # 2. Xử lý logic 2 nhánh MAX và MIN
         if is_maximizing:
             # Nhánh MAX (Lượt Máy)
             max_eval = -float('inf')
-            for r, c in empty_cells:
-                # Tính điểm phòng thủ trước
-                board.make_move(r, c, self.PLAYER)
-                defense_score = self.evaluator.evaluate_local(board.grid, r, c)
-                board.undo_move(r, c)
-                
-                # Tính điểm tấn công
+            ordered_moves = self._get_ordered_moves(board, empty_cells, True)
+            
+            for move_score, r, c in ordered_moves:
                 board.make_move(r, c, self.MACHINE)
-                attack_score = self.evaluator.evaluate_local(board.grid, r, c)
-                
-                move_score = attack_score - defense_score
-                
                 eval_score = self._minimax_rec(board, depth - 1, False, current_score + move_score, r, c, game_logic)
                 board.undo_move(r, c)
                 max_eval = max(max_eval, eval_score)
@@ -124,20 +108,48 @@ class MinimaxAgent:
         else:
             # Nhánh MIN (Lượt Người)
             min_eval = float('inf')
-            for r, c in empty_cells:
-                # Tính điểm phòng thủ trước (Máy)
-                board.make_move(r, c, self.MACHINE)
-                defense_score = self.evaluator.evaluate_local(board.grid, r, c)
-                board.undo_move(r, c)
-                
-                # Tính điểm tấn công (Người)
+            ordered_moves = self._get_ordered_moves(board, empty_cells, False)
+            
+            for move_score, r, c in ordered_moves:
                 board.make_move(r, c, self.PLAYER)
-                attack_score = self.evaluator.evaluate_local(board.grid, r, c)
-                
-                move_score = attack_score - defense_score
-                
                 eval_score = self._minimax_rec(board, depth - 1, True, current_score + move_score, r, c, game_logic)
                 board.undo_move(r, c)
                 min_eval = min(min_eval, eval_score)
                 
             return min_eval
+
+    def _get_ordered_moves(self, board, empty_cells, is_maximizing):
+        """
+        Sắp xếp các nước đi (Move Ordering) dựa trên điểm đánh giá cục bộ.
+        Việc này giúp các nhánh tốt nhất được duyệt trước, tối ưu hóa quá trình tính toán.
+        """
+        moves_with_scores = []
+        for r, c in empty_cells:
+            if is_maximizing:
+                # MAX muốn điểm tấn công cao và đối thủ bị chặn
+                board.make_move(r, c, self.MACHINE)
+                attack_score = self.evaluator.evaluate_local(board.grid, r, c)
+                board.undo_move(r, c)
+                
+                board.make_move(r, c, self.PLAYER)
+                defense_score = self.evaluator.evaluate_local(board.grid, r, c)
+                board.undo_move(r, c)
+                
+                score = attack_score - defense_score
+            else:
+                # MIN muốn điểm tấn công của mình cao (âm nhiều) và đối thủ (MAX) bị chặn
+                board.make_move(r, c, self.PLAYER)
+                attack_score = self.evaluator.evaluate_local(board.grid, r, c)
+                board.undo_move(r, c)
+                
+                board.make_move(r, c, self.MACHINE)
+                defense_score = self.evaluator.evaluate_local(board.grid, r, c)
+                board.undo_move(r, c)
+                
+                score = attack_score - defense_score
+                
+            moves_with_scores.append((score, r, c))
+            
+        # Sắp xếp: MAX ưu tiên điểm cao (giảm dần), MIN ưu tiên điểm thấp (tăng dần)
+        moves_with_scores.sort(key=lambda x: x[0], reverse=is_maximizing)
+        return moves_with_scores
