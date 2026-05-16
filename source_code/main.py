@@ -35,8 +35,8 @@ def main():
     logic      = GameLogic()   # Xử lý luật chơi
     ui         = PygameUI()    # Giao diện pygame
     evaluator  = Evaluator()   # Bộ đánh giá điểm số
-    
-    # Khởi tạo AI với độ sâu bằng 3 (đã tối ưu hóa radius=3 để chạy mượt hơn), truyền vào Evaluator
+
+    # Khởi tạo AI với độ sâu bằng 3
     ai_agent   = MinimaxAgent(depth=3, evaluator=evaluator)
     
     clock      = pygame.time.Clock()
