@@ -7,119 +7,68 @@ class Evaluator:
     def __init__(self):
         pass
 
-    def _count_ray(self, board, r, c, dr, dc, player):
-        """
-        Đếm số lượng quân liên tiếp cùng màu theo một hướng tia (dr, dc)
-        bắt đầu từ vị trí (r, c).
-        
-        Args:
-            board (list[list[int]]): Bảng trò chơi 2D.
-            r (int): Tọa độ hàng của quân vừa đánh.
-            c (int): Tọa độ cột của quân vừa đánh.
-            dr (int): Hướng duyệt theo hàng (delta row).
-            dc (int): Hướng duyệt theo cột (delta col).
-            player (int): Người chơi hiện tại (PLAYER hoặc MACHINE).
-            
-        Returns:
-            tuple: (số_quân_cùng_màu_liên_tiếp, bị_chặn_hay_không)
-        """
-        count = 0
-        blocked = False
-        rows = len(board)
-        cols = len(board[0])
-        
-        curr_r = r + dr
-        curr_c = c + dc
-        
-        while True:
-            # Nếu vượt ra ngoài mép bàn cờ -> Bị chặn
-            if curr_r < 0 or curr_r >= rows or curr_c < 0 or curr_c >= cols:
-                blocked = True
-                break
-            
-            if board[curr_r][curr_c] == player:
-                # Gặp quân đồng chất -> đếm thêm và đi tiếp
-                count += 1
-                curr_r += dr
-                curr_c += dc
-            elif board[curr_r][curr_c] == self.EMPTY:
-                # Gặp ô trống -> Hướng này đang Mở (không bị chặn)
-                blocked = False
-                break
-            else:
-                # Gặp quân đối thủ -> Bị chặn
-                blocked = True
-                break
-                
-        return count, blocked
-
     def evaluate_local(self, board, last_r, last_c):
         """
-        Đánh giá điểm số cục bộ tại tọa độ vừa đánh (last_r, last_c).
-        Bắn tia theo 4 trục: Ngang, Dọc, Chéo chính, Chéo phụ.
-        
-        Args:
-            board (list[list[int]]): Bảng trò chơi 2D.
-            last_r (int): Tọa độ hàng của quân vừa đánh.
-            last_c (int): Tọa độ cột của quân vừa đánh.
-            
-        Returns:
-            int: Tổng điểm cục bộ dựa trên 4 trục.
+        Đánh giá điểm số cục bộ tại tọa độ vừa đánh (last_r, last_c)
+        sử dụng phương pháp cửa sổ trượt tối ưu (High Performance).
         """
         player = board[last_r][last_c]
         if player == self.EMPTY:
             return 0
             
-        # 4 hướng cơ bản (trục): (Ngang, Dọc, Chéo chính, Chéo phụ)
-        directions = [
-            (0, 1),   # Ngang
-            (1, 0),   # Dọc
-            (1, 1),   # Chéo chính
-            (1, -1)   # Chéo phụ
-        ]
+        opponent = self.MACHINE if player == self.PLAYER else self.PLAYER
+        # Điểm số trả về sẽ cộng dương nếu là MACHINE, âm nếu là PLAYER
+        sign = 1 if player == self.MACHINE else -1
         
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
         total_score = 0
+        rows = len(board)
+        cols = len(board[0])
         
         for dr, dc in directions:
-            # Bắn tia về 2 hướng ngược nhau trên cùng một trục
-            count1, blocked1 = self._count_ray(board, last_r, last_c, dr, dc, player)
-            count2, blocked2 = self._count_ray(board, last_r, last_c, -dr, -dc, player)
-            
-            # Tổng số quân liên tiếp = Quân ở giữa (1) + số quân hướng 1 + số quân hướng 2
-            total_count = 1 + count1 + count2
-            
-            # Tổng số đầu bị chặn = Tổng các đầu bị chặn của hướng 1 và hướng 2 (0, 1 hoặc 2)
-            total_blocks = (1 if blocked1 else 0) + (1 if blocked2 else 0)
-            
-            # Khởi tạo điểm cho trục hiện tại
-            axis_score = 0
-            
-            # Áp dụng BẢNG ĐIỂM CHUẨN (Heuristic Scoring)
-            if total_count >= 4:
-                # Nhóm 4 quân: Thắng luôn, không quan tâm bị chặn hay không
-                axis_score = 100000 if player == self.MACHINE else -100000
+            # Xét 4 cửa sổ kích thước 4 có chứa quân cờ vừa đánh (vị trí step = 0)
+            # Cửa sổ bắt đầu từ start_step: -3, -2, -1, 0
+            for start_step in range(-3, 1):
+                player_count = 0
+                is_blocked = False
                 
-            elif total_blocks == 2:
-                # Nhóm Chết: Bị chặn 2 đầu thì 0 điểm (dù 2 hay 3 quân)
-                axis_score = 0
-                
-            elif total_count == 3:
-                # Nhóm 3 quân
-                if total_blocks == 0:
-                    # Mở 2 đầu (Chặn 0)
-                    axis_score = 50000 if player == self.MACHINE else -50000
-                elif total_blocks == 1:
-                    # Bị chặn 1 đầu (Chặn 1)
-                    axis_score = 1000 if player == self.MACHINE else -5000
+                # Kiểm tra 4 ô trong cửa sổ hiện tại
+                for step in range(start_step, start_step + 4):
+                    r = last_r + step * dr
+                    c = last_c + step * dc
                     
-            elif total_count == 2:
-                # Nhóm 2 quân
-                if total_blocks == 0:
-                    # Mở 2 đầu (Chặn 0)
-                    axis_score = 100 if player == self.MACHINE else -100
-                # Chặn 1 đầu thì được 0 điểm do luật không quy định khác
-            
-            # Cộng dồn điểm của trục này vào tổng điểm chung
-            total_score += axis_score
-            
+                    # Nếu ra ngoài biên hoặc gặp quân đối thủ -> Cửa sổ này vô dụng
+                    if r < 0 or r >= rows or c < 0 or c >= cols:
+                        is_blocked = True
+                        break
+                        
+                    cell = board[r][c]
+                    if cell == opponent:
+                        is_blocked = True
+                        break
+                    elif cell == player:
+                        player_count += 1
+                        # Thưởng điểm cho các quân cờ nằm liên tiếp nhau (Tăng mạnh)
+                        total_score += 100 * sign 
+                
+                # Chỉ cộng điểm nếu cửa sổ có khả năng thắng (không bị chặn)
+                if not is_blocked:
+                    if player_count == 4:
+                        total_score += 100000000 * sign 
+                    elif player_count == 3:
+                        total_score += 200000 * sign   # 200 Ngàn
+                    elif player_count == 2:
+                        total_score += 20000 * sign    # 20 Ngàn
+                    
+        # Thưởng điểm áp sát (Proximity bonus)
+        # Nếu nước đi nằm ngay sát (radius 1) một quân cờ bất kỳ, cộng thêm điểm
+        # Điều này giúp AI đánh bám sát hơn thay vì nhảy ra xa
+        for dr in range(-1, 2):
+            for dc in range(-1, 2):
+                if dr == 0 and dc == 0: continue
+                nr, nc = last_r + dr, last_c + dc
+                if 0 <= nr < rows and 0 <= nc < cols:
+                    if board[nr][nc] != self.EMPTY:
+                        total_score += 100 * sign
+                        
         return total_score
